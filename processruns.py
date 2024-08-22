@@ -9,7 +9,7 @@ import logging
 import os
 import sys
 
-excludedPlayers = ["LunaSpeed"] # Requested to be excluded
+excludedPlayers = [] # Requested to be excluded
 
 _log = logging.getLogger('SpeedStats-V2')
 
