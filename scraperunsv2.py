@@ -76,9 +76,13 @@ class Run:
         self.playerNames = [players.get(playerId) for playerId in run.get('playerIds')]
 
     def getTime(self, run: dict, defaultTimer: int):
-        if defaultTimer == 0 or defaultTimer == 1: # If default timing is RTA or LRT, check 'time' before 'igt'
+        if defaultTimer == 0 or defaultTimer == 1: # If default timing is RTA or LRT, check 'time' first
             if run.get('time') != None:
                 return run.get('time')
+            elif run.get('timeWithLoads') != None:
+                return run.get('timeWithLoads')
+            elif run.get('igt') != None:
+                return run.get('igt') + 10000000.0 # Prevent cases where runs with only IGT incorrectly get top spot
         if run.get('igt') != None:
             return run.get('igt')
         elif run.get('time') != None: # Either RTA or LRT depending on game
