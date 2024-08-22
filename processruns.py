@@ -1,5 +1,6 @@
 import json
 import csv
+from collections import defaultdict
 import math
 from datetime import datetime
 import mysql.connector as mariadb
@@ -8,15 +9,18 @@ import logging
 import os
 import sys
 
-excludedPlayers = []
+excludedPlayers = ["LunaSpeed"] # Requested to be excluded
 
 _log = logging.getLogger('SpeedStats-V2')
 
-def collectGroups(path: str):
+def collectGroups(path: str, test: bool):
     groups = {}
     with open(path, 'r') as file:
         runs = json.load(file)
         _log.info(len(runs))
+        if len(runs) < 3500000 and not test:
+            _log.error("There aren't enough runs!")
+            sys.exit(1)
         for run in runs:
             if run.get('groupName') not in groups:
                 groups[run.get('groupName')] = [run]
@@ -62,7 +66,7 @@ def processGroups(groups: dict):
         numWRs = findNumWRs(runs)
         leaderboardRuns = len(leaderboard)
         totalRuns = len(runs)
-        WRValue = (math.log(totalRuns, 1.5) * numWRs) * (1 - (numWRs / totalRuns))
+        WRValue = (math.log(totalRuns, 1.7) * numWRs + 120 * math.exp(-100 / totalRuns) + 0.04 * totalRuns) * (1 - (numWRs + 1) / (totalRuns + leaderboardRuns))
         sf = (math.log(leaderboardRuns, 10) / leaderboardRuns) + 0.001 if leaderboardRuns > 2 else 0.2
         previousRun = None
         currPlace = leaderboardRuns
@@ -117,10 +121,9 @@ def exportToDatabase(absPath: str):
     try:
         conn = mariadb.connect(
             host="localhost",
-            port=3306,
             user="root",
             password = "",
-            database="SpeedStats"
+            database="test"
         )
     except mariadb.Error as e:
         _log.error(f"Error connecting to MariaDB Platform: {e}")
@@ -146,22 +149,24 @@ def exportToDatabase(absPath: str):
             INSERT INTO playerRanks (Rank, Player, Points)
             SELECT ROW_NUMBER() OVER (ORDER BY Points DESC) AS Rank, t1.Player, t1.Points
             FROM (
-                SELECT Player, SUM(Value) AS Points
-                FROM runs
+                SELECT Player, SUM(GREATEST(Value * POWER(0.99, (PlayerRank - 1)), Value * 0.25)) AS Points
+                FROM (
+                    SELECT Player, Value, ROW_NUMBER() OVER (PARTITION BY Player ORDER BY Value DESC) AS PlayerRank
+                    FROM runs
+                ) AS rankedRuns
                 GROUP BY Player
                 ORDER BY Points DESC
             ) AS t1;
             """
         )
-
         conn.commit()
     except Exception as e:
         _log.error(e)
 
-def processRuns(jsonPath: str, csvPath: str, exportToDatabase: bool):
-    groups = collectGroups(jsonPath)
+def processRuns(jsonPath: str, csvPath: str, test: bool):
+    groups = collectGroups(jsonPath, test)
     leaderboards = processGroups(groups)
     generateCSV(leaderboards, csvPath)
-    if exportToDatabase:
+    if not test:
         absPath = os.path.join(os.getcwd(), csvPath)
         exportToDatabase(absPath)

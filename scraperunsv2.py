@@ -44,13 +44,12 @@ excludedGames = ['w6jrzxdj', 'o1y7pv1q'] # Speed Builders (API can't handle), Wh
 excludedCategories = ['n2y350ed', '5dw43j0k'] # Subway Surfers - No Coins (API can't handle)
 
 class Run:
-    def __init__(self, seriesId: str, timeDirection: int, run: dict):
+    def __init__(self, seriesId: str, timeDirection: int, defaultTimer: int, run: dict):
         isLevelRun = run.get('levelId') != None
         levelId = run.get('levelId') if isLevelRun else ''
         groupHash = run.get('categoryId') + levelId + ''.join(run.get('valueIds'))
 
         if groupHash not in groups:
-            
             subcategoryValueNames = []
             for valueId in run.get('valueIds'):
                 subcategoryValueName = subcategoryValues.get(valueId)
@@ -66,24 +65,31 @@ class Run:
         self.groupName = groupName
         self.seriesName = series.get(seriesId)
         self.gameName = games.get(run.get('gameId'))
-        self.time = self.getTime(run)
+        self.time = self.getTime(run, defaultTimer)
         self.date = run.get('date') # can be 0 
         self.dateSubmitted = run.get('dateSubmitted') if run.get('dateSubmitted') is not None else 2147483647
         self.isLevelRun = isLevelRun
         self.isReverseTime = True if timeDirection == 1 else False
+        self.defaultTimer = defaultTimer
         self.platformName = platforms.get(run.get('platformId')) # can be None
         self.playerNames = [players.get(playerId) for playerId in run.get('playerIds')]
 
-    def getTime(self, run: dict):
-        if run.get('igt') != None:
+    def getTime(self, run: dict, defaultTimer: int):
+        if defaultTimer == 0 or defaultTimer == 1: # If default timing is RTA or LRT, check 'time' before 'igt'
+            if run.get('time') != None:
+                return run.get('time')
+            elif run.get('timeWithLoads') != None:
+                return run.get('timeWithLoads')
+            elif run.get('igt') != None:
+                return run.get('igt') + 10000000.0 # Makes IGT slower, but handles categories w/o RTA correctly
+        elif run.get('igt') != None:
             return run.get('igt')
         elif run.get('time') != None: # Either RTA or LRT depending on game
             return run.get('time')
         elif run.get('timeWithLoads') != None: # RTA for games that use LRT
             return run.get('timeWithLoads')
-        else:
-            _log.warning(f"Run with id {run.get('id')} has a null time.")
-            return None
+        _log.warning(f"Run with id {run.get('id')} has a null time.")
+        return None
         
     def toDict(self):
         return {
@@ -95,6 +101,7 @@ class Run:
             'dateSubmitted': self.dateSubmitted,
             'isLevelRun': self.isLevelRun,
             'isReverseTime': self.isReverseTime,
+            'deafultTimer': self.defaultTimer,
             'platformName': self.platformName,
             'playerNames': self.playerNames
         }
@@ -190,6 +197,7 @@ def exploreLeaderboard(categoryOverview: dict, page: int = 1, type: int = 1):
     gameId = categoryOverview['gameId']
     categoryId = categoryOverview['id']
     timeDirection = categoryOverview['timeDirection']
+    defaultTimer = categoryOverview['defaultTimer']
     
     runBatch = {}
     _log.info(f"Getting run batch for game {games[gameId]} and category"
@@ -205,7 +213,7 @@ def exploreLeaderboard(categoryOverview: dict, page: int = 1, type: int = 1):
             players[player['id']] = playerName
 
         for run in runBatch['runs']:
-            runs.append(Run(seriesId, timeDirection, run))
+            runs.append(Run(seriesId, timeDirection, defaultTimer, run))
     else:
         runBatch = GetGameLeaderboard2(gameId, categoryId, obsolete = 1, video = 0, verified = 1, page = page).perform()
         for player in runBatch['playerList']:
@@ -215,7 +223,7 @@ def exploreLeaderboard(categoryOverview: dict, page: int = 1, type: int = 1):
                 playerName = f"[Guest]{player['name'].strip()}"
             players[player['id']] = playerName
         for run in runBatch['runList']:
-            runs.append(Run(seriesId, timeDirection, run))
+            runs.append(Run(seriesId, timeDirection, defaultTimer, run))
 
     return runBatch['pagination']['pages']
 
@@ -248,6 +256,8 @@ def exploreGame(gameOverview: dict):
     
     if game == None:
         return None
+    
+    defaultTimer = game['game']['defaultTimer']
 
     gameLevels = game['levels']
     for level in gameLevels:
@@ -274,7 +284,8 @@ def exploreGame(gameOverview: dict):
             'gameId': gameId,
             'id': category['id'],
             'name': category['name'],
-            'timeDirection': category['timeDirection']
+            'timeDirection': category['timeDirection'],
+            'defaultTimer': defaultTimer
         }
         categoryOverviews.append(categoryOverview)
     
